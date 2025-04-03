@@ -1,37 +1,11 @@
 import { Request, Response } from "express";
-import axios from "axios";
 import * as cheerio from "cheerio";
-import { Product, DetailedProduct } from "../types/product";
-import { filterProductsWithAI } from "../utils/productFilter";
+import { Product, DetailedProduct } from "../types/product.js";
+import { filterProductsWithAI } from "../utils/productFilter.js";
+import { request } from "../utils/request.js";
+import { writeFileSync } from "fs";
 
-const fetchFromUrl = async (url: string): Promise<string> => {
-  try {
-    const response = await axios.get(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        Connection: "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Cache-Control": "max-age=0",
-      },
-      timeout: 30000, // Increase timeout
-    });
-
-    console.log("Response status:", response.status);
-    return response.data;
-  } catch (error: any) {
-    console.error("Error fetching data from URL:", error);
-    throw new Error(`Failed to fetch data: ${error.message}`);
-  }
-};
-
-export const getProduct = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const getProduct = async (req: Request, res: Response): Promise<void> => {
   try {
     const product = req.query.product as string;
     if (!product) {
@@ -39,19 +13,19 @@ export const getProduct = async (
       return;
     }
 
-    const products: Product[] = [];
+    let products: Product[] = [];
     const maxPages = 1;
 
     // Fetch products from Amazon
     for (let i = 0; i < maxPages; i++) {
       try {
-        const url = `https://www.amazon.com/s?k=${encodeURIComponent(
-          product
-        )}&page=${i + 1}`;
+        const url = `https://www.amazon.com/s?k=${product.replaceAll(" ", "+")}&page=${i + 1}`;
         console.log("Fetching URL:", url);
 
-        const html = await fetchFromUrl(url);
-        const $ = cheerio.load(html);
+        console.log("making tls request");
+
+        const { data } = await request({ url }, { zone: "residential" });
+        const $ = cheerio.load(data);
 
         $('[cel_widget_id^="MAIN-SEARCH_RESULTS-"]').each((_, container) => {
           const $container = $(container);
@@ -73,6 +47,11 @@ export const getProduct = async (
 
         console.log(`Page ${i + 1}: Found ${products.length} products so far.`);
 
+        products = products.filter(
+          (p) => !p.title.includes("Sponsor") && !p.title.includes("Sponsored")
+        );
+        writeFileSync("products.json", JSON.stringify(products, null, 2));
+
         await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (error) {
         console.error(`Error processing page ${i + 1}:`, error);
@@ -80,7 +59,7 @@ export const getProduct = async (
     }
 
     if (products.length === 0) {
-      res.status(404).json({ message: "No products found" });
+      res.status(200).json({ message: "No products found" });
       return;
     }
 
@@ -88,22 +67,20 @@ export const getProduct = async (
 
     let filteredProducts: Product[] = [];
     try {
-      const jsonString = (
-        typeof aiResult === "string" ? aiResult : JSON.stringify(aiResult)
-      )
+      const jsonString = (typeof aiResult === "string" ? aiResult : JSON.stringify(aiResult))
         .replace(/^```json\n|\n```$/g, "")
         .trim();
 
       const parsedResponse = JSON.parse(jsonString);
 
-      filteredProducts = Array.isArray(parsedResponse)
-        ? parsedResponse
-        : parsedResponse.products || parsedResponse.items || [];
+      if (!Array.isArray(parsedResponse)) {
+        throw new Error("Invalid AI response");
+      }
 
-      filteredProducts = filteredProducts
-        .map((p: any) => ({
-          title: p.title || "",
-          url: p.url || "",
+      filteredProducts = parsedResponse
+        .map((title: string) => ({
+          title,
+          url: products.find((p) => p.title === title)?.url || "",
         }))
         .filter((p: Product) => p.title && p.url);
     } catch (parseError) {
@@ -112,17 +89,10 @@ export const getProduct = async (
     }
 
     // Get details for all filtered products (with rate limiting)
-    const detailedProducts: DetailedProduct[] = [];
-    for (const product of filteredProducts) {
-      try {
-        const detailedProduct = await getProductDetails(product);
-        detailedProducts.push(detailedProduct);
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // Rate limiting
-      } catch (error) {
-        console.error(`Error processing ${product.title}:`, error);
-        detailedProducts.push(product); // Add basic product info if details fail
-      }
-    }
+    console.log("Fetching details for", filteredProducts.length, "products");
+    const detailedProducts: DetailedProduct[] = await Promise.all(
+      filteredProducts.map(getProductDetails)
+    );
 
     res.status(200).json({
       count: detailedProducts.length,
@@ -137,12 +107,10 @@ export const getProduct = async (
   }
 };
 
-const getProductDetails = async (
-  product: Product
-): Promise<DetailedProduct> => {
+const getProductDetails = async (product: Product): Promise<DetailedProduct> => {
   try {
-    const response = await fetchFromUrl(product.url);
-    const $ = cheerio.load(response);
+    const { data } = await request({ url: product.url }, { zone: "residential" });
+    const $ = cheerio.load(data);
 
     // Extract price information
     const getPrice = (): string | null => {
@@ -150,12 +118,7 @@ const getProductDetails = async (
       const priceDiv = $(".corePriceDisplay_desktop_feature_div, .a-price");
 
       const symbol = priceDiv.find(".a-price-symbol").first().text().trim();
-      const whole = priceDiv
-        .find(".a-price-whole")
-        .first()
-        .text()
-        .trim()
-        .replace(/,/g, ""); // Remove thousands separators
+      const whole = priceDiv.find(".a-price-whole").first().text().trim().replace(/,/g, ""); // Remove thousands separators
       const fraction = priceDiv.find(".a-price-fraction").first().text().trim();
 
       if (symbol && whole && fraction) {
@@ -186,15 +149,12 @@ const getProductDetails = async (
       .map((i, el) => $(el).attr("src")?.trim() || "")
       .get();
 
-   
-     // Extract full product description as plain text
-     const productDescription = $('#productDescription').text().trim();
-
-
+    // Extract full product description as plain text
+    const productDescription = $("#productDescription").text().trim();
 
     return {
       ...product,
-      price: price || 'Price not available',
+      price: price || "Price not available",
       bulletPoints: featureBullets,
       features: productFeatures,
       imageUrls: imageUrls,

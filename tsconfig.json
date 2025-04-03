@@ -1,14 +1,25 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "CommonJS",
-    "lib": ["ES2020"],
+    "declaration": true,
+    "declarationMap": true,
+    "composite": true,
+    "downlevelIteration": true,
+    "experimentalDecorators": true,
+    "incremental": true,
+    "lib": ["ESNext"],
+    "module": "Node16",
     "outDir": "./dist",
     "rootDir": "./src",
-    "strict": true,
+    "moduleResolution": "node16",
+    "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
+    "noErrorTruncation": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "sourceMap": true,
+    "strict": true,
+    "target": "ESNext"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]

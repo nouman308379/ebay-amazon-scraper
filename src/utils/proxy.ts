@@ -36,7 +36,7 @@ export async function getProxyInfo(options?: ProxyOptions) {
 
 export async function buildBrightUsername(options?: ProxyOptions) {
   let username = process.env.PROXY_SERVER_USERNAME;
-  username = username + `-zone-${options?.zone ?? "data_center"}` + "US";
+  username = username + `-zone-${options?.zone ?? "data_center"}` + "--country-US";
 
   /**
    * The dedicated cities incurs additional cost (~3x what we pay residential) and also isn't exactly in the city

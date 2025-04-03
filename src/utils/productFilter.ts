@@ -1,6 +1,7 @@
 import axios from "axios";
-import { Product } from "../types/product";
+import { Product } from "../types/product.js";
 import dotenv from "dotenv";
+import { writeFileSync } from "fs";
 
 dotenv.config();
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
@@ -10,10 +11,7 @@ interface FilteringRules {
   products: Product[];
 }
 
-export const generateFilteringPrompt = ({
-  searchTerm,
-  products,
-}: FilteringRules): string => {
+export const generateFilteringPrompt = ({ searchTerm, products }: FilteringRules): string => {
   return `
   You are a product filtering assistant. Your task is to strictly filter products based on these rules:
   
@@ -46,7 +44,7 @@ export const generateFilteringPrompt = ({
      - Bundles containing accessories → exclude
   
   FORMAT REQUIREMENTS:
-  - Return ONLY a JSON array of objects with "title" and "url"
+  - Return ONLY an array of product titles
   - No additional text or explanations
   
   Products to filter:
@@ -54,11 +52,10 @@ export const generateFilteringPrompt = ({
   `;
 };
 
-
 export const filterProductsWithAI = async (
   searchTerm: string,
   products: Product[]
-): Promise<Product[] | null> => {
+): Promise<string[] | null> => {
   try {
     const prompt = generateFilteringPrompt({ searchTerm, products });
 
@@ -82,16 +79,15 @@ export const filterProductsWithAI = async (
       }
     );
 
-    const filteredProductsText =
-      response.data.candidates[0].content.parts[0].text;
+    const filteredProductsText = response.data.candidates[0].content.parts[0].text;
+
+    writeFileSync("filteredProducts.md", filteredProductsText);
 
     try {
       // Clean and parse the AI response
-      const jsonString = filteredProductsText
-        .replace(/^```json\n|\n```$/g, "")
-        .trim();
+      const jsonString = filteredProductsText.replace(/^```json\n|\n```$/g, "").trim();
 
-      return JSON.parse(jsonString) as Product[];
+      return JSON.parse(jsonString) as string[];
     } catch (parseError) {
       console.error("Failed to parse AI response:", parseError);
       return null;

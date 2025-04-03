@@ -160,9 +160,7 @@ let headersOrderData: Record<SupportedBrowserNames, string[]>;
  */
 function getDefaultHeadersOrder(browser: SupportedBrowserNames) {
   if (!headersOrderData) {
-    headersOrderData = JSON.parse(
-      readFileSync("node/@da/http/data-files/browser-headers-order.json", "utf-8")
-    );
+    headersOrderData = JSON.parse(readFileSync("data/browser-headers-order.json", "utf-8"));
   }
   return headersOrderData![browser];
 }
