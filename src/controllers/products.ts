@@ -26,6 +26,17 @@ const fetchFromUrl = async (url: string): Promise<string> => {
     throw new Error(`Failed to fetch data: ${error.message}`);
   }
 };
+interface Product {
+  title: string;
+  description?: any;
+  url: string;
+  asin: string;
+  price: string;
+  index: number;
+  bulletPoints?: string[];
+  features?: Record<string, string>;
+  imageUrls?: string[];
+}
 
 export const getProduct = async (
   req: Request,
@@ -38,116 +49,106 @@ export const getProduct = async (
       return;
     }
 
-    const url = `https://www.amazon.com/s?k=${encodeURIComponent(
-      product
-    )}&page=1`;
-    console.log("Fetching URL:", url);
+    for (let i = 0; i < 1; i++) {
+      const url = `https://www.amazon.com/s?k=${encodeURIComponent(
+        product
+      )}&page=${i + 1}`;
+      console.log("Fetching URL:", url);
 
-    const html = await fetchFromUrl(url);
+      const html = await fetchFromUrl(url);
 
-    // Use cheerio instead of JSDOM
-    const $ = cheerio.load(html);
+      // Use cheerio instead of JSDOM
+      const $ = cheerio.load(html);
 
-    // Debug - output the HTML structure
-    console.log("HTML snippet:", html.substring(0, 500) + "...");
+      // Debug - output the HTML structure
+      console.log("HTML snippet:", html.substring(0, 500) + "...");
 
-    // Focus only on .s-line-clamp-2 elements
-    const elements = $(".s-line-clamp-2");
-    console.log(`Found ${elements.length} elements with .s-line-clamp-2`);
+      // Focus only on .s-line-clamp-2 elements
+      const elements = $(".s-line-clamp-2");
+      console.log(`Found ${elements.length} elements with .s-line-clamp-2`);
 
-    // Extract information from the elements
-    interface Product {
-      title: string;
-      description?: any;
-      url: string;
-      asin: string;
-      price: string;
-      index: number;
-      bulletPoints?: string[];
-      features?: Record<string, string>;
-      imageUrls?: string[];
-    }
+      // Extract information from the elements
 
-    const products: Product[] = elements
-      .map((i, el) => {
-        const $el = $(el);
+      const products: Product[] = elements
+        .map((i, el) => {
+          const $el = $(el);
 
-        // Find parent anchor tag if the element itself isn't an anchor
-        const $anchor = $el.is("a") ? $el : $el.closest("a");
-        const href = $anchor.attr("href") || "";
-        const title = $el.text().trim();
-        const fullUrl = href.startsWith("http")
-          ? href
-          : href
-          ? `https://www.amazon.com${href}`
-          : "";
+          // Find parent anchor tag if the element itself isn't an anchor
+          const $anchor = $el.is("a") ? $el : $el.closest("a");
+          const href = $anchor.attr("href") || "";
+          const title = $el.text().trim();
+          const fullUrl = href.startsWith("http")
+            ? href
+            : href
+            ? `https://www.amazon.com${href}`
+            : "";
 
-        // Get the parent product element to extract additional data if needed
-        const $productElement = $el.closest(".s-result-item");
-        const asin = $productElement.attr("data-asin") || "";
+          // Get the parent product element to extract additional data if needed
+          const $productElement = $el.closest(".s-result-item");
+          const asin = $productElement.attr("data-asin") || "";
 
-        // Get the price if available
-        const $priceElement = $productElement.find(".a-price .a-offscreen");
-        const price =
-          $priceElement.length > 0 ? $priceElement.first().text() : "";
+          // Get the price if available
+          const $priceElement = $productElement.find(".a-price .a-offscreen");
+          const price =
+            $priceElement.length > 0 ? $priceElement.first().text() : "";
 
-        return {
-          title,
-          url: fullUrl,
-          asin,
-          price,
-          index: i + 1,
-        };
-      })
-      .get(); // Convert to regular array
+          return {
+            title,
+            url: fullUrl,
+            asin,
+            price,
+            index: i + 1,
+          };
+        })
+        .get(); // Convert to regular array
 
-    if (products.length === 0) {
-      // If no products found, check if we're being blocked or if page structure changed
-      if (html.includes("captcha") || html.includes("robot")) {
-        console.log("Detected CAPTCHA or anti-bot measures");
-        res.status(403).json({
-          message:
-            "Amazon is blocking the request. Try using a proxy or Puppeteer.",
-        });
-        return;
+      if (products.length === 0) {
+        // If no products found, check if we're being blocked or if page structure changed
+        if (html.includes("captcha") || html.includes("robot")) {
+          console.log("Detected CAPTCHA or anti-bot measures");
+          res.status(403).json({
+            message:
+              "Amazon is blocking the request. Try using a proxy or Puppeteer.",
+          });
+          return;
+        }
+
+        // Save HTML for debugging
+        console.log("No products found. Page structure may have changed.");
       }
 
-      // Save HTML for debugging
-      console.log("No products found. Page structure may have changed.");
-    }
+      if (products.length > 0) {
+        const response = await fetchFromUrl(products[4].url);
+        const $ = cheerio.load(response);
 
-    if (products.length > 0) {
-      const response = await fetchFromUrl(products[4].url);
-      const $ = cheerio.load(response);
+        // Extract feature bullets
+        const featureBullets = $("#feature-bullets .a-list-item")
+          .map((i, el) => $(el).text().trim())
+          .get();
 
-      // Extract feature bullets
-      const featureBullets = $("#feature-bullets .a-list-item")
-        .map((i, el) => $(el).text().trim())
-        .get();
+        // Extract product overview details (key-value pairs)
+        const productFeatures: Record<string, string> = {};
+        $("#productOverview_feature_div tr").each((i, el) => {
+          const key = $(el).find("td").first().text().trim();
+          const value = $(el).find("td").last().text().trim();
+          if (key && value) {
+            productFeatures[key] = value;
+          }
+        });
 
-      // Extract product overview details (key-value pairs)
-      const productFeatures: Record<string, string> = {};
-      $("#productOverview_feature_div tr").each((i, el) => {
-        const key = $(el).find("td").first().text().trim();
-        const value = $(el).find("td").last().text().trim();
-        if (key && value) {
-          productFeatures[key] = value;
-        }
-      });
-
-      // Extract image URLs from `.a-list-item .a-button-text img`
-      const imageUrls: string[] = $(".a-list-item .a-button-text img")
-        .map((i, el) => $(el).attr("src")?.trim() || "")
-        .get();
+        // Extract image URLs from `.a-list-item .a-button-text img`
+        const imageUrls: string[] = $(".a-list-item .a-button-text img")
+          .map((i, el) => $(el).attr("src")?.trim() || "")
+          .get();
 
         const productDescription: Record<string, string | string[]> = {};
         const descriptionParagraphs = $("#productDescription p");
-        
+
         let lastHeading: string | null = null;
-        
+
         descriptionParagraphs.each((i, el) => {
           const spans = $(el).find("span");
-        
+
           if (spans.length === 2) {
             // Case 1: Two spans -> Key-Value pair
             const key = spans.first().text().trim();
@@ -158,7 +159,7 @@ export const getProduct = async (
           } else if (spans.length === 1) {
             const span = spans.first();
             const text = span.text().trim();
-        
+
             if (span.hasClass("a-text-bold")) {
               // Case 2: Single span with "a-text-bold" -> Heading
               lastHeading = text;
@@ -169,26 +170,28 @@ export const getProduct = async (
             }
           }
         });
-        
+
         // Convert arrays with one element to string
         Object.keys(productDescription).forEach((key) => {
-          if (Array.isArray(productDescription[key]) && productDescription[key].length === 1) {
+          if (
+            Array.isArray(productDescription[key]) &&
+            productDescription[key].length === 1
+          ) {
             productDescription[key] = productDescription[key][0];
           }
         });
-        
-        
 
-      products[4].bulletPoints = featureBullets;
-      products[4].features = productFeatures;
-      products[4].imageUrls = imageUrls;
-      products[4].description = productDescription;
+        products[4].bulletPoints = featureBullets;
+        products[4].features = productFeatures;
+        products[4].imageUrls = imageUrls;
+        products[4].description = productDescription;
+      }
+
+      res.status(200).json({
+        count: products.length,
+        product: products[4],
+      });
     }
-
-    res.status(200).json({
-      count: products.length,
-      product: products[4],
-    });
   } catch (error: any) {
     console.error("Error fetching product:", error);
     res
