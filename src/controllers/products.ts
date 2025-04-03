@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { Product } from "../types/product";
+import { Product, DetailedProduct } from "../types/product";
 import { filterProductsWithAI } from "../utils/productFilter";
 
 const fetchFromUrl = async (url: string): Promise<string> => {
@@ -28,7 +28,6 @@ const fetchFromUrl = async (url: string): Promise<string> => {
   }
 };
 
-
 export const getProduct = async (
   req: Request,
   res: Response
@@ -41,7 +40,7 @@ export const getProduct = async (
     }
 
     const products: Product[] = [];
-    const maxPages = 5;
+    const maxPages = 1;
 
     // Fetch products from Amazon
     for (let i = 0; i < maxPages; i++) {
@@ -86,11 +85,12 @@ export const getProduct = async (
     }
 
     const aiResult = await filterProductsWithAI(product, products);
-    
 
     let filteredProducts: Product[] = [];
     try {
-      const jsonString = (typeof aiResult === "string" ? aiResult : JSON.stringify(aiResult))
+      const jsonString = (
+        typeof aiResult === "string" ? aiResult : JSON.stringify(aiResult)
+      )
         .replace(/^```json\n|\n```$/g, "")
         .trim();
 
@@ -111,9 +111,22 @@ export const getProduct = async (
       filteredProducts = products;
     }
 
+    // Get details for all filtered products (with rate limiting)
+    const detailedProducts: DetailedProduct[] = [];
+    for (const product of filteredProducts) {
+      try {
+        const detailedProduct = await getProductDetails(product);
+        detailedProducts.push(detailedProduct);
+        await new Promise((resolve) => setTimeout(resolve, 1000)); // Rate limiting
+      } catch (error) {
+        console.error(`Error processing ${product.title}:`, error);
+        detailedProducts.push(product); // Add basic product info if details fail
+      }
+    }
+
     res.status(200).json({
-      count: filteredProducts.length,
-      products: filteredProducts,
+      count: detailedProducts.length,
+      products: detailedProducts,
     });
   } catch (error: any) {
     console.error("Error in getProduct:", error);
@@ -124,3 +137,71 @@ export const getProduct = async (
   }
 };
 
+const getProductDetails = async (
+  product: Product
+): Promise<DetailedProduct> => {
+  try {
+    const response = await fetchFromUrl(product.url);
+    const $ = cheerio.load(response);
+
+    // Extract price information
+    const getPrice = (): string | null => {
+      // Try the main price display first
+      const priceDiv = $(".corePriceDisplay_desktop_feature_div, .a-price");
+
+      const symbol = priceDiv.find(".a-price-symbol").first().text().trim();
+      const whole = priceDiv
+        .find(".a-price-whole")
+        .first()
+        .text()
+        .trim()
+        .replace(/,/g, ""); // Remove thousands separators
+      const fraction = priceDiv.find(".a-price-fraction").first().text().trim();
+
+      if (symbol && whole && fraction) {
+        return `${symbol}${whole}.${fraction}`;
+      }
+
+      return null;
+    };
+
+    const price = getPrice();
+    // Extract feature bullets
+    const featureBullets = $("#feature-bullets .a-list-item")
+      .map((i, el) => $(el).text().trim())
+      .get();
+
+    // Extract product overview details
+    const productFeatures: Record<string, string> = {};
+    $("#productOverview_feature_div tr").each((i, el) => {
+      const key = $(el).find("td").first().text().trim();
+      const value = $(el).find("td").last().text().trim();
+      if (key && value) {
+        productFeatures[key] = value;
+      }
+    });
+
+    // Extract image URLs
+    const imageUrls: string[] = $(".a-list-item .a-button-text img")
+      .map((i, el) => $(el).attr("src")?.trim() || "")
+      .get();
+
+   
+     // Extract full product description as plain text
+     const productDescription = $('#productDescription').text().trim();
+
+
+
+    return {
+      ...product,
+      price: price || 'Price not available',
+      bulletPoints: featureBullets,
+      features: productFeatures,
+      imageUrls: imageUrls,
+      description: productDescription,
+    };
+  } catch (error) {
+    console.error(`Failed to fetch details for ${product.title}:`, error);
+    return product; // Return basic product info if details fail
+  }
+};
