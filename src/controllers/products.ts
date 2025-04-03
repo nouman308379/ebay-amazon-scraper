@@ -1,14 +1,8 @@
 import { Request, Response } from "express";
 import axios from "axios";
 import * as cheerio from "cheerio";
-import dotenv from "dotenv";
-
-dotenv.config();
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-if (!GEMINI_API_KEY) {
-  throw new Error("GEMINI_API_KEY is not defined in environment variables");
-}
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+import { Product } from "../types/product";
+import { filterProductsWithAI } from "../utils/productFilter";
 
 const fetchFromUrl = async (url: string): Promise<string> => {
   try {
@@ -34,10 +28,6 @@ const fetchFromUrl = async (url: string): Promise<string> => {
   }
 };
 
-interface Product {
-  title: string;
-  url: string;
-}
 
 export const getProduct = async (
   req: Request,
@@ -95,12 +85,12 @@ export const getProduct = async (
       return;
     }
 
-    const aiResult = await fetchAIResponse(product, products);
-    const aiResponseText = aiResult.candidates[0].content.parts[0].text;
+    const aiResult = await filterProductsWithAI(product, products);
+    
 
     let filteredProducts: Product[] = [];
     try {
-      const jsonString = aiResponseText
+      const jsonString = (typeof aiResult === "string" ? aiResult : JSON.stringify(aiResult))
         .replace(/^```json\n|\n```$/g, "")
         .trim();
 
@@ -134,34 +124,3 @@ export const getProduct = async (
   }
 };
 
-const fetchAIResponse = async (searchTerm: string, products: Product[]) => {
-  try {
-    const response = await axios.post(
-      API_URL,
-      {
-        contents: [
-          {
-            parts: [
-              {
-                text: `Filter only the relevant products from this list that exactly match the term "${searchTerm}". Ignore accessories or unrelated items. Here is the list: ${JSON.stringify(
-                  products
-                )}`,
-              },
-            ],
-          },
-        ],
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    console.log("Filtered Products:", response.data);
-    return response.data;
-  } catch (error: any) {
-    console.error("Error:", error.response?.data || error.message);
-    return null;
-  }
-};
