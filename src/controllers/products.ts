@@ -1,6 +1,14 @@
 import { Request, Response } from "express";
 import axios from "axios";
 import * as cheerio from "cheerio";
+import dotenv from "dotenv";
+
+dotenv.config();
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+if (!GEMINI_API_KEY) {
+  throw new Error("GEMINI_API_KEY is not defined in environment variables");
+}
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 const fetchFromUrl = async (url: string): Promise<string> => {
   try {
@@ -43,44 +51,117 @@ export const getProduct = async (
     }
 
     const products: Product[] = [];
+    const maxPages = 5;
 
-    for (let i = 0; i < 5; i++) {
-      const url = `https://www.amazon.com/s?k=${encodeURIComponent(
-        product
-      )}&page=${i + 1}`;
-      console.log("Fetching URL:", url);
+    // Fetch products from Amazon
+    for (let i = 0; i < maxPages; i++) {
+      try {
+        const url = `https://www.amazon.com/s?k=${encodeURIComponent(
+          product
+        )}&page=${i + 1}`;
+        console.log("Fetching URL:", url);
 
-      const html = await fetchFromUrl(url);
-      const $ = cheerio.load(html);
+        const html = await fetchFromUrl(url);
+        const $ = cheerio.load(html);
 
-      $('[cel_widget_id^="MAIN-SEARCH_RESULTS-"]').each((_, container) => {
-        const $container = $(container);
-
-        $container.find(".s-line-clamp-2").each((_, el) => {
-          const $el = $(el);
-          const $anchor = $el.closest("a");
+        $('[cel_widget_id^="MAIN-SEARCH_RESULTS-"]').each((_, container) => {
+          const $container = $(container);
+          const title = $container
+            .find(".s-line-clamp-2, .s-title-instructions-style")
+            .first()
+            .text()
+            .trim();
+          const $anchor = $container.find("a[href*='/dp/']").first();
           const href = $anchor.attr("href") || "";
-          const title = $el.text().trim();
           const fullUrl = href.startsWith("http")
             ? href
-            : `https://www.amazon.com${href}`;
+            : `https://www.amazon.com${href.split("?")[0]}`;
 
           if (title && fullUrl) {
             products.push({ title, url: fullUrl });
           }
         });
-      });
-      console.log(`Page ${i + 1}: Found ${products.length} products so far.`);
+
+        console.log(`Page ${i + 1}: Found ${products.length} products so far.`);
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error) {
+        console.error(`Error processing page ${i + 1}:`, error);
+      }
+    }
+
+    if (products.length === 0) {
+      res.status(404).json({ message: "No products found" });
+      return;
+    }
+
+    const aiResult = await fetchAIResponse(product, products);
+    const aiResponseText = aiResult.candidates[0].content.parts[0].text;
+
+    let filteredProducts: Product[] = [];
+    try {
+      const jsonString = aiResponseText
+        .replace(/^```json\n|\n```$/g, "")
+        .trim();
+
+      const parsedResponse = JSON.parse(jsonString);
+
+      filteredProducts = Array.isArray(parsedResponse)
+        ? parsedResponse
+        : parsedResponse.products || parsedResponse.items || [];
+
+      filteredProducts = filteredProducts
+        .map((p: any) => ({
+          title: p.title || "",
+          url: p.url || "",
+        }))
+        .filter((p: Product) => p.title && p.url);
+    } catch (parseError) {
+      console.error("Failed to parse AI response:", parseError);
+      filteredProducts = products;
     }
 
     res.status(200).json({
-      count: products.length,
-      products,
+      count: filteredProducts.length,
+      products: filteredProducts,
     });
   } catch (error: any) {
-    console.error("Error fetching product:", error);
-    res
-      .status(500)
-      .json({ message: `Internal Server Error: ${error.message}` });
+    console.error("Error in getProduct:", error);
+    res.status(500).json({
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
+const fetchAIResponse = async (searchTerm: string, products: Product[]) => {
+  try {
+    const response = await axios.post(
+      API_URL,
+      {
+        contents: [
+          {
+            parts: [
+              {
+                text: `Filter only the relevant products from this list that exactly match the term "${searchTerm}". Ignore accessories or unrelated items. Here is the list: ${JSON.stringify(
+                  products
+                )}`,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    console.log("Filtered Products:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("Error:", error.response?.data || error.message);
+    return null;
   }
 };
