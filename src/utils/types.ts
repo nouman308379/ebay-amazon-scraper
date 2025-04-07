@@ -1,21 +1,7 @@
 export type SupportedBrowser = "chrome" | "firefox" | "safari";
 export type SupportedBrowserOS = "windows" | "macos" | "ios" | "android";
 
-export type ProxyZone =
-  | "data_center"
-  | "data_center_premium"
-  | "isp"
-  | "mobile"
-  | "none"
-  | "residential"
-  | "residential_city_targets"
-  | "residential_oxy"
-  | "residential_smartproxy"
-  | "self_hosted"
-  | "unblocked"
-  | "isp_dedicated_proxies"
-  | "scraping_browser1"
-  | "residential_massive";
+export type ProxyZone = "residential_proxy";
 
 export type ProxyOptions = {
   timeout?: number;
