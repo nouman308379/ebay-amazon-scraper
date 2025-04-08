@@ -5,7 +5,10 @@ import { filterProductsWithAI } from "../utils/productFilter.js";
 import { request } from "../utils/request.js";
 import { writeFileSync } from "fs";
 
-export const getProduct = async (req: Request, res: Response): Promise<void> => {
+export const getProduct = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const product = req.query.product as string;
     if (!product) {
@@ -19,7 +22,10 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
     // Fetch products from Amazon
     for (let i = 0; i < maxPages; i++) {
       try {
-        const url = `https://www.amazon.com/s?k=${product.replaceAll(" ", "+")}&page=${i + 1}`;
+        const url = `https://www.amazon.com/s?k=${product.replaceAll(
+          " ",
+          "+"
+        )}&page=${i + 1}`;
         console.log("Fetching URL:", url);
 
         console.log("making tls request");
@@ -67,7 +73,9 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
 
     let filteredProducts: Product[] = [];
     try {
-      const jsonString = (typeof aiResult === "string" ? aiResult : JSON.stringify(aiResult))
+      const jsonString = (
+        typeof aiResult === "string" ? aiResult : JSON.stringify(aiResult)
+      )
         .replace(/^```json\n|\n```$/g, "")
         .trim();
 
@@ -107,9 +115,14 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
-const getProductDetails = async (product: Product): Promise<DetailedProduct> => {
+const getProductDetails = async (
+  product: Product
+): Promise<DetailedProduct> => {
   try {
-    const { data } = await request({ url: product.url }, { zone: "residential" });
+    const { data } = await request(
+      { url: product.url },
+      { zone: "residential" }
+    );
     const $ = cheerio.load(data);
 
     // Extract price information
@@ -118,7 +131,12 @@ const getProductDetails = async (product: Product): Promise<DetailedProduct> => 
       const priceDiv = $(".corePriceDisplay_desktop_feature_div, .a-price");
 
       const symbol = priceDiv.find(".a-price-symbol").first().text().trim();
-      const whole = priceDiv.find(".a-price-whole").first().text().trim().replace(/,/g, ""); // Remove thousands separators
+      const whole = priceDiv
+        .find(".a-price-whole")
+        .first()
+        .text()
+        .trim()
+        .replace(/,/g, ""); // Remove thousands separators
       const fraction = priceDiv.find(".a-price-fraction").first().text().trim();
 
       if (symbol && whole && fraction) {
@@ -145,10 +163,13 @@ const getProductDetails = async (product: Product): Promise<DetailedProduct> => 
     });
 
     // Extract image URLs
-    const imageUrls: string[] = $(".a-list-item .a-button-text img")
-      .map((i, el) => $(el).attr("src")?.trim() || "")
-      .get();
+    // const imageUrls: string[] = $(".a-list-item .a-button-text img")
+    //   .map((i, el) => $(el).attr("src")?.trim() || "")
+    //   .get();
 
+    const imageUrls = $(".imgTagWrapper img").attr("src");
+
+    console.log("Image URLs:", imageUrls);
     // Extract full product description as plain text
     const productDescription = $("#productDescription").text().trim();
 
@@ -157,7 +178,7 @@ const getProductDetails = async (product: Product): Promise<DetailedProduct> => 
       price: price || "Price not available",
       bulletPoints: featureBullets,
       features: productFeatures,
-      imageUrls: imageUrls,
+      imageUrls: imageUrls ? [imageUrls] : [],
       description: productDescription,
     };
   } catch (error) {
