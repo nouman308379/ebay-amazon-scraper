@@ -6,6 +6,7 @@ import { ProxyOptions } from "./types.js";
 async function request(config: AxiosRequestConfig, options: ProxyOptions) {
   const proxyString = await getProxyString(options);
   const httpsAgent = new HttpsProxyAgent(proxyString);
+  httpsAgent.options = { ...httpsAgent.options, rejectUnauthorized: false };
   let axiosClient = axios.create({ httpsAgent, timeout: 30_000 });
 
   const response = await axiosClient.request({
