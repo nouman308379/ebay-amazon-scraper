@@ -17,6 +17,7 @@ export type ProxyZone =
   | "scraping_browser1"
   | "residential_massive";
 
+
 export type ProxyOptions = {
   timeout?: number;
   sessionID?: string;
