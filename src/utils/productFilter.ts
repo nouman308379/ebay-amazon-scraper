@@ -1,10 +1,10 @@
-import axios from "axios";
 import { Product } from "../types/product.js";
-import dotenv from "dotenv";
-import { writeFileSync } from "fs";
+import "dotenv/config";
+import { GoogleGenAI, Type } from "@google/genai";
 
-dotenv.config();
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+});
 
 interface FilteringRules {
   searchTerm: string;
@@ -13,42 +13,14 @@ interface FilteringRules {
 
 export const generateFilteringPrompt = ({ searchTerm, products }: FilteringRules): string => {
   return `
-    You are a product filtering assistant. Your task is to filter a list of product titles based on a search term, applying the following refined rules:
+  we have a website where we show the images of the product a user have searched for. User have search for following product:
+  ${searchTerm}
 
-    1. BRAND MATCHING:
-      - Match if the product title contains the full brand name from the search term
-      - Partial matches (e.g., "Apple iPhone" → "Apple iPhone 13") are acceptable
-      - Ignore misspellings and unrelated brands
-      - Brand match is case-insensitive
+  and have found the following products for search resutls:
+  ${JSON.stringify(products, null, 2)}
 
-    2. PRODUCT TYPE SPECIFICATION:
-      - If the search term contains a product type (e.g., laptop, phone, shoes), include only products matching that type
-      - Match plurals or variants (e.g., “phones” matches “phone”)
-      - Case-insensitive and tolerant of synonyms (e.g., “mobile” for “phone”)
-
-    3. MODEL/VERSION FILTERING:
-      - If a model/version is included (e.g., "Air Max 90", "Galaxy S23"), filter strictly by that
-      - Include minor variations (e.g., "Galaxy S23 Ultra" for "Galaxy S23") unless a more specific variant is named
-      - Ignore accessories or bundles
-
-    4. ACCESSORY EXCLUSION:
-      - Exclude generic accessories (cases, chargers, cables, stands)
-      - Exclude products labeled as "bundle", "combo", or similar unless they clearly match the exact model and product type
-      - Exclude unrelated add-ons
-
-    5. RULE OF STRICT INCLUSION:
-      - If unsure whether a product matches → EXCLUDE it
-      - Prefer fewer accurate matches over many vague ones
-      - Include products with partial model names if no more precise options are found
-
-    FORMAT:
-    - Return ONLY an array of matching product titles (as strings)
-    - No extra text, no explanations
-
-    Search term: "${searchTerm}"
-
-    Products to filter:
-    ${JSON.stringify(products, null, 2)}
+  I want you to find the individual product user have search for.
+  RETURN: list of product titles
   `;
 };
 
@@ -59,41 +31,80 @@ export const filterProductsWithAI = async (
   try {
     const prompt = generateFilteringPrompt({ searchTerm, products });
 
-    const response = await axios.post(
-      GEMINI_API_URL,
-      {
-        contents: [
-          {
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: prompt,
+      config: {
+        temperature: 1,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.STRING,
           },
-        ],
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
         },
-      }
-    );
+      },
+    });
 
-    const filteredProductsText = response.data.candidates[0].content.parts[0].text;
-
-    writeFileSync("filteredProducts.md", filteredProductsText);
-
-    try {
-      // Clean and parse the AI response
-      const jsonString = filteredProductsText.replace(/^```.*\n|\n```$/g, "").trim();
-
-      return JSON.parse(jsonString) as string[];
-    } catch (parseError) {
-      console.error("Failed to parse AI response:", parseError);
-      return null;
+    const filteredProductsText = response.text;
+    console.log(response.text);
+    if (!filteredProductsText) {
+      throw new Error("No response from AI");
     }
+
+    return JSON.parse(filteredProductsText) as string[];
   } catch (error: any) {
     console.error("AI Filtering Error:", error.response?.data || error.message);
     return null;
   }
 };
+
+if (import.meta.url.endsWith(process.argv[1])) {
+  const products = [
+    {
+      title:
+        "BissellCleanView Swivel Rewind Pet Reach Vacuum Cleaner, with Quick Release Wand, Swivel Steering and Automatic Cord Rewind, 3197A (Color May Vary)",
+      url: "https://www.amazon.com/BISSELL-CleanView-Swivel-Rewind-Cleaner/dp/B09LPCZ9FF/ref=sr_1_1",
+    },
+    {
+      title:
+        "Bissell2254 CleanView Swivel Rewind Pet Upright Bagless Vacuum, Automatic Cord Rewind, Swivel Steering, Powerful Pet Hair Pickup, Specialized Pet Tools, Large Capacity Dirt Tank, Teal",
+      url: "https://www.amazon.com/2254-CleanView-Automatic-Steering-Specialized/dp/B07F6MXJ9X/ref=sr_1_2",
+    },
+    {
+      title:
+        "BissellSurfaceSense Allergen Lift-Off Pet Upright Vacuum, with Tangle-Free Multi-Surface Brush Roll, LED Headlights, & Lift-Off Technology",
+      url: "https://www.amazon.com/SurfaceSense-Tangle-Free-Multi-Surface-Headlights-Technology/dp/B0BPJX6Z19/ref=sr_1_3",
+    },
+    {
+      title:
+        "Bissell24613 Pet Hair Eraser Turbo Plus Lightweight Vacuum, Tangle-Free Brush Roll, Powerful Pet Hair Pick-up, SmartSeal Allergen System, Specialized Pet Tools, Easy Empty Dirt Tank",
+      url: "https://www.amazon.com/BISSELL-Lightweight-Upright-Cleaner-24613/dp/B07QXTS4KH/ref=sr_1_4",
+    },
+    {
+      title:
+        "KEEPOWReplacement Parts Compatible with Bissell Cleanview Swivel Pet Vacuum 2252 2254 2486 2489 22543 24899 1327 1333, 1 Brush Roll Replacement and 3 Vacuum Belt 3031120 with 1 Cleaning Tool",
+      url: "https://www.amazon.com/KEEPOW-Replacement-Compatible-Cleanview-Cleaning/dp/B0DQD3NJYH/ref=sr_1_5",
+    },
+    {
+      title:
+        "KEEPOWReplacement Parts Compatible with Bissell Cleanview Swivel Pet Vacuum 2252 2254 2486 2489 22543 24899 1327 1333, 1 Brush Roll Replacement and 5 Vacuum Belt 3031120 with 1 Cleaning Tool",
+      url: "https://www.amazon.com/KEEPOW-Replacement-Compatible-Cleanview-Cleaning/dp/B0D9JT3S8D/ref=sr_1_6",
+    },
+    {
+      title: "Bissell3624 Spot Clean Professional Portable Carpet Cleaner - Corded , Black",
+      url: "https://www.amazon.com/Bissell-3624-SpotClean-Professional-Portable/dp/B008DBRFBK/ref=sr_1_7",
+    },
+    {
+      title: "BissellSpotClean Pet Pro Portable Carpet Cleaner, 2458",
+      url: "https://www.amazon.com/BISSELL-SpotClean-Portable-Cleaner-2458/dp/B07D46SQ63/ref=sr_1_8",
+    },
+    {
+      title: "Bissell2-in-1 Pet Upholstery Tool for Carpet and Upholstery Cleaners (3259)",
+      url: "https://www.amazon.com/Bissell-Tool-Carpet-Upholstery-Cleaners/dp/B08Q9Y4ZNQ/ref=sr_1_9",
+    },
+  ];
+  const searchTerm = "Bissell Cleanview XR Pet Vacuum";
+  const filteredProducts = await filterProductsWithAI(searchTerm, products);
+  console.log(filteredProducts);
+}
