@@ -14,48 +14,44 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
     }
 
     let products: Product[] = [];
-    const maxPages = 1;
+    const maxPages = Number(process.env.MAX_PAGES ?? "1");
 
     // Fetch products from Amazon
     for (let i = 0; i < maxPages; i++) {
-      try {
-        const url = `https://www.amazon.com/s?k=${product.replaceAll(" ", "+")}&page=${i + 1}`;
-        console.log("Fetching URL:", url);
+      const url = `https://www.amazon.com/s?k=${product.replaceAll(" ", "+")}&page=${i + 1}`;
+      console.log("Fetching URL:", url);
 
-        console.log("making tls request");
+      console.log("making tls request");
 
-        const { data } = await request({ url }, { zone: "residential_proxy" });
-        const $ = cheerio.load(data);
+      const { data } = await request({ url }, { zone: "residential_proxy" });
+      const $ = cheerio.load(data);
 
-        $('[cel_widget_id^="MAIN-SEARCH_RESULTS-"]').each((_, container) => {
-          const $container = $(container);
-          const title = $container
-            .find(".s-line-clamp-2, .s-title-instructions-style")
-            .first()
-            .text()
-            .trim();
-          const $anchor = $container.find("a[href*='/dp/']").first();
-          const href = $anchor.attr("href") || "";
-          const fullUrl = href.startsWith("http")
-            ? href
-            : `https://www.amazon.com${href.split("?")[0]}`;
+      $('[cel_widget_id^="MAIN-SEARCH_RESULTS-"]').each((_, container) => {
+        const $container = $(container);
+        const title = $container
+          .find(".s-line-clamp-2, .s-title-instructions-style")
+          .first()
+          .text()
+          .trim();
+        const $anchor = $container.find("a[href*='/dp/']").first();
+        const href = $anchor.attr("href") || "";
+        const fullUrl = href.startsWith("http")
+          ? href
+          : `https://www.amazon.com${href.split("?")[0]}`;
 
-          if (title && fullUrl) {
-            products.push({ title, url: fullUrl });
-          }
-        });
+        if (title && fullUrl) {
+          products.push({ title, url: fullUrl });
+        }
+      });
 
-        console.log(`Page ${i + 1}: Found ${products.length} products so far.`);
+      console.log(`Page ${i + 1}: Found ${products.length} products so far.`);
 
-        products = products.filter(
-          (p) => !p.title.includes("Sponsor") && !p.title.includes("Sponsored")
-        );
-        writeFileSync("products.json", JSON.stringify(products, null, 2));
+      products = products.filter(
+        (p) => !p.title.includes("Sponsor") && !p.title.includes("Sponsored")
+      );
+      writeFileSync("products.json", JSON.stringify(products, null, 2));
 
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      } catch (error) {
-        console.error(`Error processing page ${i + 1}:`, error);
-      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
     if (products.length === 0) {
@@ -64,20 +60,14 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
     }
 
     const aiResult = await filterProductsWithAI(product, products);
+    if (!aiResult) {
+      res.status(200).json({ message: "No products after llm filteration" });
+      return;
+    }
 
     let filteredProducts: Product[] = [];
     try {
-      const jsonString = (typeof aiResult === "string" ? aiResult : JSON.stringify(aiResult))
-        .replace(/^```json\n|\n```$/g, "")
-        .trim();
-
-      const parsedResponse = JSON.parse(jsonString);
-
-      if (!Array.isArray(parsedResponse)) {
-        throw new Error("Invalid AI response");
-      }
-
-      filteredProducts = parsedResponse
+      filteredProducts = aiResult
         .map((title: string) => ({
           title,
           url: products.find((p) => p.title === title)?.url || "",
@@ -90,16 +80,16 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
 
     // Get details for all filtered products (with rate limiting)
     console.log("Fetching details for", filteredProducts.length, "products");
-    const detailedProducts: DetailedProduct[] = await Promise.all(
+    const detailedFilteredProducts: DetailedProduct[] = await Promise.all(
       filteredProducts.map(getProductDetails)
     );
 
     res.status(200).json({
-      count: detailedProducts.length,
-      products: detailedProducts,
+      amazonSearchResults: products,
+      products: detailedFilteredProducts,
     });
   } catch (error: any) {
-    console.error("Error in getProduct:", error);
+    console.error(`Error ${error}`);
     res.status(500).json({
       message: "Internal Server Error",
       error: error.message,
@@ -148,8 +138,6 @@ const getProductDetails = async (product: Product): Promise<DetailedProduct> => 
       .map((_, el) => $(el).html())
       .get()
       .find((content) => content && content.includes("ImageBlockATF"));
-
-    console.log("Script content:", scriptContent);
 
     const largeImages = scriptContent ? extractLargeImages(scriptContent) : [];
 
