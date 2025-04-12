@@ -3,7 +3,6 @@ import * as cheerio from "cheerio";
 import { Product, DetailedProduct } from "../types/product.js";
 import { filterProductsWithAI } from "../utils/productFilter.js";
 import { request } from "../utils/request.js";
-import { writeFileSync } from "fs";
 
 export const getProduct = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -21,9 +20,15 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
       const url = `https://www.amazon.com/s?k=${product.replaceAll(" ", "+")}&page=${i + 1}`;
       console.log("Fetching URL:", url);
 
-      console.log("making tls request");
+      const { data } = await request({ url }, { zone: "residential_proxy" }).catch((err) => {
+        console.error(`Error fetching ${url}:`, err);
+        return { data: null };
+      });
 
-      const { data } = await request({ url }, { zone: "residential_proxy" });
+      if (!data) {
+        continue;
+      }
+
       const $ = cheerio.load(data);
 
       $('[cel_widget_id^="MAIN-SEARCH_RESULTS-"]').each((_, container) => {
@@ -40,22 +45,19 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
           : `https://www.amazon.com${href.split("?")[0]}`;
 
         if (title && fullUrl) {
-          products.push({ title, url: fullUrl });
+          if (!title.includes("Sponsor") && !title.includes("Sponsored")) {
+            products.push({ title, url: fullUrl });
+          }
         }
       });
 
-      console.log(`Page ${i + 1}: Found ${products.length} products so far.`);
-
-      products = products.filter(
-        (p) => !p.title.includes("Sponsor") && !p.title.includes("Sponsored")
-      );
-      writeFileSync("products.json", JSON.stringify(products, null, 2));
-
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      console.log(`Total products collected: ${products.length}`);
     }
 
     if (products.length === 0) {
-      res.status(200).json({ message: "No products found" });
+      res.status(200).json({
+        message: "No products returned from amazon or there was an error fetching products",
+      });
       return;
     }
 
