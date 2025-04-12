@@ -5,10 +5,7 @@ import { filterProductsWithAI } from "../utils/productFilter.js";
 import { request } from "../utils/request.js";
 import { writeFileSync } from "fs";
 
-export const getProduct = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const getProduct = async (req: Request, res: Response): Promise<void> => {
   try {
     const product = req.query.product as string;
     if (!product) {
@@ -22,10 +19,7 @@ export const getProduct = async (
     // Fetch products from Amazon
     for (let i = 0; i < maxPages; i++) {
       try {
-        const url = `https://www.amazon.com/s?k=${product.replaceAll(
-          " ",
-          "+"
-        )}&page=${i + 1}`;
+        const url = `https://www.amazon.com/s?k=${product.replaceAll(" ", "+")}&page=${i + 1}`;
         console.log("Fetching URL:", url);
 
         console.log("making tls request");
@@ -73,9 +67,7 @@ export const getProduct = async (
 
     let filteredProducts: Product[] = [];
     try {
-      const jsonString = (
-        typeof aiResult === "string" ? aiResult : JSON.stringify(aiResult)
-      )
+      const jsonString = (typeof aiResult === "string" ? aiResult : JSON.stringify(aiResult))
         .replace(/^```json\n|\n```$/g, "")
         .trim();
 
@@ -115,14 +107,9 @@ export const getProduct = async (
   }
 };
 
-const getProductDetails = async (
-  product: Product
-): Promise<DetailedProduct> => {
+const getProductDetails = async (product: Product): Promise<DetailedProduct> => {
   try {
-    const { data } = await request(
-      { url: product.url },
-      { zone: "residential_proxy" }
-    );
+    const { data } = await request({ url: product.url }, { zone: "residential_proxy" });
     const $ = cheerio.load(data);
 
     // Extract price information
@@ -131,12 +118,7 @@ const getProductDetails = async (
       const priceDiv = $(".corePriceDisplay_desktop_feature_div, .a-price");
 
       const symbol = priceDiv.find(".a-price-symbol").first().text().trim();
-      const whole = priceDiv
-        .find(".a-price-whole")
-        .first()
-        .text()
-        .trim()
-        .replace(/,/g, ""); // Remove thousands separators
+      const whole = priceDiv.find(".a-price-whole").first().text().trim().replace(/,/g, ""); // Remove thousands separators
       const fraction = priceDiv.find(".a-price-fraction").first().text().trim();
 
       if (symbol && whole && fraction) {
@@ -191,8 +173,7 @@ const getProductDetails = async (
 function extractLargeImages(scriptContent: string) {
   try {
     // Use regex to directly extract the large image URLs
-    const largeImagePattern =
-      /"large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
+    const largeImagePattern = /"large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
     const matches = [...scriptContent.matchAll(largeImagePattern)];
 
     if (matches && matches.length > 0) {
@@ -225,8 +206,7 @@ function extractLargeImages(scriptContent: string) {
     }
 
     // Last resort: try a simpler regex approach to extract URLs
-    const simpleUrlPattern =
-      /large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
+    const simpleUrlPattern = /large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
     const simpleMatches = [...scriptContent.matchAll(simpleUrlPattern)];
     return simpleMatches.map((match) => match[1]);
   } catch (error) {
