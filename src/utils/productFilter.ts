@@ -85,7 +85,7 @@ export const filterProductsWithAI = async (
 
     try {
       // Clean and parse the AI response
-      const jsonString = filteredProductsText.replace(/^```json\n|\n```$/g, "").trim();
+      const jsonString = filteredProductsText.replace(/^```.*\n|\n```$/g, "").trim();
 
       return JSON.parse(jsonString) as string[];
     } catch (parseError) {
