@@ -4,7 +4,10 @@ import { Product, DetailedProduct } from "../types/product.js";
 import { filterProductsWithAI } from "../utils/productFilter.js";
 import { request } from "../utils/request.js";
 
-export const getProduct = async (req: Request, res: Response): Promise<void> => {
+export const getProduct = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const product = req.query.product as string;
     if (!product) {
@@ -17,10 +20,16 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
 
     // Fetch products from Amazon
     for (let i = 0; i < maxPages; i++) {
-      const url = `https://www.amazon.com/s?k=${product.replaceAll(" ", "+")}&page=${i + 1}`;
+      const url = `https://www.amazon.com/s?k=${product.replaceAll(
+        " ",
+        "+"
+      )}&page=${i + 1}`;
       console.log("Fetching URL:", url);
 
-      const { data } = await request({ url }, { zone: "residential_proxy" }).catch((err) => {
+      const { data } = await request(
+        { url },
+        { zone: "residential_proxy" }
+      ).catch((err) => {
         console.error(`Error fetching ${url}:`, err);
         return { data: null };
       });
@@ -56,14 +65,15 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
 
     if (products.length === 0) {
       res.status(200).json({
-        message: "No products returned from amazon or there was an error fetching products",
+        message:
+          "No products returned from amazon or there was an error fetching products",
       });
       return;
     }
 
     const aiResult = await filterProductsWithAI(product, products);
     if (!aiResult) {
-      res.status(200).json({ message: "No products after llm filteration" });
+      res.status(200).json({ message: "No products after llm filtration" });
       return;
     }
 
@@ -80,7 +90,6 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
       filteredProducts = products;
     }
 
-    // Get details for all filtered products (with rate limiting)
     console.log("Fetching details for", filteredProducts.length, "products");
     const detailedFilteredProducts: DetailedProduct[] = await Promise.all(
       filteredProducts.map(getProductDetails)
@@ -99,9 +108,14 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
-const getProductDetails = async (product: Product): Promise<DetailedProduct> => {
+const getProductDetails = async (
+  product: Product
+): Promise<DetailedProduct> => {
   try {
-    const { data } = await request({ url: product.url }, { zone: "residential_proxy" });
+    const { data } = await request(
+      { url: product.url },
+      { zone: "residential_proxy" }
+    );
     const $ = cheerio.load(data);
 
     // Extract price information
@@ -110,7 +124,12 @@ const getProductDetails = async (product: Product): Promise<DetailedProduct> => 
       const priceDiv = $(".corePriceDisplay_desktop_feature_div, .a-price");
 
       const symbol = priceDiv.find(".a-price-symbol").first().text().trim();
-      const whole = priceDiv.find(".a-price-whole").first().text().trim().replace(/,/g, ""); // Remove thousands separators
+      const whole = priceDiv
+        .find(".a-price-whole")
+        .first()
+        .text()
+        .trim()
+        .replace(/,/g, ""); // Remove thousands separators
       const fraction = priceDiv.find(".a-price-fraction").first().text().trim();
 
       if (symbol && whole && fraction) {
@@ -156,47 +175,41 @@ const getProductDetails = async (product: Product): Promise<DetailedProduct> => 
     };
   } catch (error) {
     console.error(`Failed to fetch details for ${product.title}:`, error);
-    return product; // Return basic product info if details fail
+    return product;
   }
 };
 
 function extractLargeImages(scriptContent: string) {
   try {
-    // Use regex to directly extract the large image URLs
-    const largeImagePattern = /"large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
+    const largeImagePattern =
+      /"large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
     const matches = [...scriptContent.matchAll(largeImagePattern)];
 
     if (matches && matches.length > 0) {
       return matches.map((match) => match[1]);
     }
 
-    // If the above approach fails, try an alternative method
-    // Extract the colorImages.initial array using a more targeted approach
     const colorImagesMatch = scriptContent.match(
       /'colorImages':\s*{\s*'initial':\s*(\[[\s\S]*?\])}/
     );
 
     if (colorImagesMatch && colorImagesMatch[1]) {
-      // Instead of trying to parse the whole data object, focus just on the array
       const imagesArrayString = colorImagesMatch[1]
         .replace(/'/g, '"')
         .replace(/([a-zA-Z0-9_]+):/g, '"$1":');
 
       try {
-        // Try to evaluate the array as JavaScript instead of parsing as JSON
-        // This is safer than eval() but serves a similar purpose for this specific case
         const mockFunction = new Function("return " + imagesArrayString);
         const imagesArray = mockFunction();
 
-        // Extract large URLs
         return imagesArray.map((item: { large: any }) => item.large);
       } catch (evalError) {
         console.error("Error evaluating images array:", evalError);
       }
     }
 
-    // Last resort: try a simpler regex approach to extract URLs
-    const simpleUrlPattern = /large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
+    const simpleUrlPattern =
+      /large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
     const simpleMatches = [...scriptContent.matchAll(simpleUrlPattern)];
     return simpleMatches.map((match) => match[1]);
   } catch (error) {
