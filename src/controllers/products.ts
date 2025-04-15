@@ -4,74 +4,70 @@ import { Product, DetailedProduct } from "../types/product.js";
 import { filterProductsWithAI } from "../utils/productFilter.js";
 import { request } from "../utils/request.js";
 
-export const getProduct = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const getProduct = async (req: Request, res: Response): Promise<void> => {
   try {
-    const product = req.query.product as string;
-    if (!product) {
-      res.status(400).json({ message: "Product query parameter is required" });
+    let { query, prompt, maxPages } = req.body;
+    if (!query || !prompt) {
+      res.status(400).json({ message: "Product query and prompt are required" });
       return;
     }
 
     let products: Product[] = [];
-    const maxPages = Number(process.env.MAX_PAGES ?? "1");
+    maxPages = Number(maxPages ?? "1");
+    prompt = prompt.replace("{{query}}", query);
 
-    // Fetch products from Amazon
-    for (let i = 0; i < maxPages; i++) {
-      const url = `https://www.amazon.com/s?k=${product.replaceAll(
-        " ",
-        "+"
-      )}&page=${i + 1}`;
+    // Create array of page numbers and fetch all pages in parallel
+    const pagePromises = Array.from({ length: maxPages }, (_, i) => {
+      const url = `https://www.amazon.com/s?k=${query.replaceAll(" ", "+")}&page=${i + 1}`;
       console.log("Fetching URL:", url);
 
-      const { data } = await request(
-        { url },
-        { zone: "residential_proxy" }
-      ).catch((err) => {
-        console.error(`Error fetching ${url}:`, err);
-        return { data: null };
-      });
+      return request({ url }, { zone: "residential_proxy" })
+        .then(({ data }) => {
+          if (!data) return [];
 
-      if (!data) {
-        continue;
-      }
+          const $ = cheerio.load(data);
+          const pageProducts: Product[] = [];
 
-      const $ = cheerio.load(data);
+          $('[cel_widget_id^="MAIN-SEARCH_RESULTS-"]').each((_, container) => {
+            const $container = $(container);
+            const title = $container
+              .find(".s-line-clamp-2, .s-title-instructions-style")
+              .first()
+              .text()
+              .trim();
+            const $anchor = $container.find("a[href*='/dp/']").first();
+            const href = $anchor.attr("href") || "";
+            const fullUrl = href.startsWith("http")
+              ? href
+              : `https://www.amazon.com${href.split("?")[0]}`;
 
-      $('[cel_widget_id^="MAIN-SEARCH_RESULTS-"]').each((_, container) => {
-        const $container = $(container);
-        const title = $container
-          .find(".s-line-clamp-2, .s-title-instructions-style")
-          .first()
-          .text()
-          .trim();
-        const $anchor = $container.find("a[href*='/dp/']").first();
-        const href = $anchor.attr("href") || "";
-        const fullUrl = href.startsWith("http")
-          ? href
-          : `https://www.amazon.com${href.split("?")[0]}`;
+            if (title && fullUrl && !title.includes("Sponsored")) {
+              pageProducts.push({ title, url: fullUrl });
+            }
+          });
 
-        if (title && fullUrl) {
-          if (!title.includes("Sponsor") && !title.includes("Sponsored")) {
-            products.push({ title, url: fullUrl });
-          }
-        }
-      });
+          return pageProducts;
+        })
+        .catch((err) => {
+          console.error(`Error fetching ${url}:`, err);
+          return [];
+        });
+    });
 
-      console.log(`Total products collected: ${products.length}`);
-    }
+    // Wait for all pages to be fetched and flatten the results
+    const productArrays = await Promise.all(pagePromises);
+    products = productArrays.flat();
+    console.log(`Total products collected: ${products.length}`);
 
     if (products.length === 0) {
       res.status(200).json({
-        message:
-          "No products returned from amazon or there was an error fetching products",
+        message: "No products returned from amazon or there was an error fetching products",
       });
       return;
     }
 
-    const aiResult = await filterProductsWithAI(product, products);
+    prompt = prompt.replace("{{products}}", JSON.stringify(products));
+    const aiResult = await filterProductsWithAI(prompt);
     if (!aiResult) {
       res.status(200).json({ message: "No products after llm filtration" });
       return;
@@ -108,14 +104,9 @@ export const getProduct = async (
   }
 };
 
-const getProductDetails = async (
-  product: Product
-): Promise<DetailedProduct> => {
+const getProductDetails = async (product: Product): Promise<DetailedProduct> => {
   try {
-    const { data } = await request(
-      { url: product.url },
-      { zone: "residential_proxy" }
-    );
+    const { data } = await request({ url: product.url }, { zone: "residential_proxy" });
     const $ = cheerio.load(data);
 
     // Extract price information
@@ -124,12 +115,7 @@ const getProductDetails = async (
       const priceDiv = $(".corePriceDisplay_desktop_feature_div, .a-price");
 
       const symbol = priceDiv.find(".a-price-symbol").first().text().trim();
-      const whole = priceDiv
-        .find(".a-price-whole")
-        .first()
-        .text()
-        .trim()
-        .replace(/,/g, ""); // Remove thousands separators
+      const whole = priceDiv.find(".a-price-whole").first().text().trim().replace(/,/g, ""); // Remove thousands separators
       const fraction = priceDiv.find(".a-price-fraction").first().text().trim();
 
       if (symbol && whole && fraction) {
@@ -181,8 +167,7 @@ const getProductDetails = async (
 
 function extractLargeImages(scriptContent: string) {
   try {
-    const largeImagePattern =
-      /"large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
+    const largeImagePattern = /"large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
     const matches = [...scriptContent.matchAll(largeImagePattern)];
 
     if (matches && matches.length > 0) {
@@ -208,8 +193,7 @@ function extractLargeImages(scriptContent: string) {
       }
     }
 
-    const simpleUrlPattern =
-      /large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
+    const simpleUrlPattern = /large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
     const simpleMatches = [...scriptContent.matchAll(simpleUrlPattern)];
     return simpleMatches.map((match) => match[1]);
   } catch (error) {
