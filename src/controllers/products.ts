@@ -181,9 +181,9 @@ const getProductDetails = async (
 
 function extractLargeImages(scriptContent: string) {
   try {
-    const largeImagePattern =
-      /"large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
-    const matches = [...scriptContent.matchAll(largeImagePattern)];
+    const hiResImagePattern =
+      /"hiRes":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
+    const matches = [...scriptContent.matchAll(hiResImagePattern)];
 
     if (matches && matches.length > 0) {
       return matches.map((match) => match[1]);
@@ -202,7 +202,7 @@ function extractLargeImages(scriptContent: string) {
         const mockFunction = new Function("return " + imagesArrayString);
         const imagesArray = mockFunction();
 
-        return imagesArray.map((item: { large: any }) => item.large);
+        return imagesArray.map((item: { hiRes: any }) => item.hiRes);
       } catch (evalError) {
         console.error("Error evaluating images array:", evalError);
       }
