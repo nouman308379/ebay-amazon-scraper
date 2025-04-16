@@ -9,10 +9,14 @@ export const getProduct = async (
   res: Response
 ): Promise<void> => {
   try {
-    let { query, prompt, maxPages } = req.body;
+    let { query, maxPages } = req.body;
+
+    let prompt =
+      req.body.prompt ||
+      'User searches for a product or accessory providing its name and we would like to select from the list of product names and links we found on Amazon the ones matching that searched product.\nUser have entered the product name or accessory: {{query}}\nWe have found the following products on amazon: {{products}}\n\nBased on product titles, I want you to filter the titles that best match the given product name. Prioritize complete products over accessories, unless the user query explicitly includes the word "accessory," "filter," "wand," "replacement," etc.\nPlease stop at max 10 matches\nSpecifically:\n1. Focus on Core Products: If the user\'s query doesn\'t mention accessories, return only the titles that clearly refer to the product itself, not its parts or compatible items.\n2. Accessory Handling: If the user\'s query does include "accessory," "filter," "wand," or "replacement" (or similar terms related to parts), then include titles that specifically refer to accessories compatible with the product.\n3. Fuzzy Matching: Be flexible with variations in the title, such as different word order, minor spelling variations, or the inclusion of model numbers (e.g., 3797V). The core product name should be the primary matching factor.\n4. Exclusion: Exclude results that are clearly for completely different vacuum cleaners or brands, even if they happen to share a few words with the target product.\nRETURN: list of product titles';
 
     console.log("Body:", req.body);
-    if (!query || !prompt) {
+    if (!query) {
       res
         .status(400)
         .json({ message: "Product query and prompt are required" });
@@ -152,16 +156,18 @@ const getProductDetails = async (
       .map((i, el) => $(el).text().trim())
       .get();
 
-      // a-popover-content-1
+    // a-popover-content-1
 
-  
     // Extract product overview details
     const productFeatures: Record<string, string> = {};
     $("#productOverview_feature_div tr").each((i, el) => {
       const key = $(el).find("td.a-span3").text().trim();
       const $valueTd = $(el).find("td.a-span9");
       const baseText = $valueTd.find(".a-size-base").text().trim();
-      const offscreenText = $valueTd.find(".a-truncate-full.a-offscreen").text().trim();
+      const offscreenText = $valueTd
+        .find(".a-truncate-full.a-offscreen")
+        .text()
+        .trim();
       const value = offscreenText || baseText;
 
       if (key && value) {
@@ -169,7 +175,6 @@ const getProductDetails = async (
       }
     });
 
-    
     // a-span9 a-size-base a-truncate-full a-offscreen
 
     const scriptContent = $("script")
