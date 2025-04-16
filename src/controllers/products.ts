@@ -4,11 +4,18 @@ import { Product, DetailedProduct } from "../types/product.js";
 import { filterProductsWithAI } from "../utils/productFilter.js";
 import { request } from "../utils/request.js";
 
-export const getProduct = async (req: Request, res: Response): Promise<void> => {
+export const getProduct = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     let { query, prompt, maxPages } = req.body;
+
+    console.log("Body:", req.body);
     if (!query || !prompt) {
-      res.status(400).json({ message: "Product query and prompt are required" });
+      res
+        .status(400)
+        .json({ message: "Product query and prompt are required" });
       return;
     }
 
@@ -18,7 +25,10 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
 
     // Create array of page numbers and fetch all pages in parallel
     const pagePromises = Array.from({ length: maxPages }, (_, i) => {
-      const url = `https://www.amazon.com/s?k=${query.replaceAll(" ", "+")}&page=${i + 1}`;
+      const url = `https://www.amazon.com/s?k=${query.replaceAll(
+        " ",
+        "+"
+      )}&page=${i + 1}`;
       console.log("Fetching URL:", url);
 
       return request({ url }, { zone: "residential_proxy" })
@@ -61,7 +71,8 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
 
     if (products.length === 0) {
       res.status(200).json({
-        message: "No products returned from amazon or there was an error fetching products",
+        message:
+          "No products returned from amazon or there was an error fetching products",
       });
       return;
     }
@@ -104,9 +115,14 @@ export const getProduct = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
-const getProductDetails = async (product: Product): Promise<DetailedProduct> => {
+const getProductDetails = async (
+  product: Product
+): Promise<DetailedProduct> => {
   try {
-    const { data } = await request({ url: product.url }, { zone: "residential_proxy" });
+    const { data } = await request(
+      { url: product.url },
+      { zone: "residential_proxy" }
+    );
     const $ = cheerio.load(data);
 
     // Extract price information
@@ -115,11 +131,16 @@ const getProductDetails = async (product: Product): Promise<DetailedProduct> => 
       const priceDiv = $(".corePriceDisplay_desktop_feature_div, .a-price");
 
       const symbol = priceDiv.find(".a-price-symbol").first().text().trim();
-      const whole = priceDiv.find(".a-price-whole").first().text().trim().replace(/,/g, ""); // Remove thousands separators
+      const whole = priceDiv
+        .find(".a-price-whole")
+        .first()
+        .text()
+        .trim()
+        .replace(/,/g, ""); // Remove thousands separators
       const fraction = priceDiv.find(".a-price-fraction").first().text().trim();
 
       if (symbol && whole && fraction) {
-        return `${symbol}${whole}.${fraction}`;
+        return `${symbol}${whole}${fraction}`;
       }
 
       return null;
@@ -131,15 +152,25 @@ const getProductDetails = async (product: Product): Promise<DetailedProduct> => 
       .map((i, el) => $(el).text().trim())
       .get();
 
+      // a-popover-content-1
+
+  
     // Extract product overview details
     const productFeatures: Record<string, string> = {};
     $("#productOverview_feature_div tr").each((i, el) => {
-      const key = $(el).find("td").first().text().trim();
-      const value = $(el).find("td").last().text().trim();
+      const key = $(el).find("td.a-span3").text().trim();
+      const $valueTd = $(el).find("td.a-span9");
+      const baseText = $valueTd.find(".a-size-base").text().trim();
+      const offscreenText = $valueTd.find(".a-truncate-full.a-offscreen").text().trim();
+      const value = offscreenText || baseText;
+
       if (key && value) {
         productFeatures[key] = value;
       }
     });
+
+    
+    // a-span9 a-size-base a-truncate-full a-offscreen
 
     const scriptContent = $("script")
       .map((_, el) => $(el).html())
@@ -167,7 +198,8 @@ const getProductDetails = async (product: Product): Promise<DetailedProduct> => 
 
 function extractLargeImages(scriptContent: string) {
   try {
-    const hiResImagePattern = /"hiRes":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
+    const hiResImagePattern =
+      /"hiRes":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
     const matches = [...scriptContent.matchAll(hiResImagePattern)];
 
     if (matches && matches.length > 0) {
@@ -193,7 +225,8 @@ function extractLargeImages(scriptContent: string) {
       }
     }
 
-    const simpleUrlPattern = /large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
+    const simpleUrlPattern =
+      /large":"(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/g;
     const simpleMatches = [...scriptContent.matchAll(simpleUrlPattern)];
     return simpleMatches.map((match) => match[1]);
   } catch (error) {
